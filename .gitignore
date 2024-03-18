@@ -1,3 +1,7 @@
+# SYSTEM
+.DS_Store
+
+# ZIG STUFF
 zig-cache/
 zig-out/
 /release/
@@ -5,3 +9,6 @@ zig-out/
 /build/
 /build-*/
 /docgen_tmp/
+
+# LIB
+raylib-zig/
