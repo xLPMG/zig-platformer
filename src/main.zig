@@ -1,107 +1,64 @@
-// Port of https://github.com/raysan5/raylib/blob/master/examples/textures/textures_sprite_anim.c to zig
-
 const std = @import("std");
 const rl = @import("raylib");
 
-const MAX_FRAME_SPEED = 15;
-const MIN_FRAME_SPEED = 1;
+var bgColor = rl.Color.black;
+var fgColor = rl.Color.white;
+
+const Player = struct { pos: rl.Vector2, turretSize: f32, gunSize: rl.Vector2, rot: f32, speed: f32, damage: f32 };
+var player: Player = undefined;
+
+pub fn drawPlayer() void {
+    //turret
+    rl.drawCircleV(player.pos, player.turretSize, fgColor);
+
+    // gun
+    var rec: rl.Rectangle = .{ .x = player.pos.x, .y = player.pos.y, .width = player.gunSize.x, .height = player.gunSize.y };
+    rl.drawRectanglePro(rec, .{ .x = player.gunSize.x / 2, .y = 0 }, player.rot, fgColor);
+}
 
 pub fn main() anyerror!void {
-    // Initialization
-    //--------------------------------------------------------------------------------------
     const screenWidth = 800;
-    const screenHeight = 450;
+    const screenHeight = 600;
+    var dt: f32 = 1;
 
-    rl.initAudioDevice(); // Initialize audio device
-    rl.initWindow(screenWidth, screenHeight, "raylib [texture] example - sprite anim");
-    defer rl.closeWindow(); // Close window and OpenGL context
+    player = .{ .pos = .{ .x = screenWidth / 2, .y = screenHeight / 2 }, .turretSize = 10, .gunSize = .{ .x = 10, .y = 20 }, .rot = 0.0, .speed = 40, .damage = 1 };
 
-    // NOTE: Textures MUST be loaded after Window initialization (OpenGL context is required)
-    const scarfy: rl.Texture = rl.Texture.init("resources/textures/scarfy.png"); // Texture loading
-    defer rl.unloadTexture(scarfy); // Texture unloading
+    rl.initWindow(screenWidth, screenHeight, "turret defense!");
+    defer rl.closeWindow();
 
-    const position = rl.Vector2.init(350.0, 280.0);
-    var frameRec = rl.Rectangle.init(
-        0,
-        0,
-        @as(f32, @floatFromInt(@divFloor(scarfy.width, 6))),
-        @as(f32, @floatFromInt(scarfy.height)),
-    );
-    var currentFrame: u8 = 0;
-
-    var framesCounter: u8 = 0;
-    var framesSpeed: u8 = 8; // Number of spritesheet frames shown by second
-
-    rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
-    //--------------------------------------------------------------------------------------
-
-    // Main game loop
-    while (!rl.windowShouldClose()) { // Detect window close button or ESC key
-        // Update
+    while (!rl.windowShouldClose()) {
+        // UPDATES
         //----------------------------------------------------------------------------------
-        framesCounter += 1;
-
-        if (framesCounter >= (60 / framesSpeed)) {
-            framesCounter = 0;
-            currentFrame += 1;
-
-            if (currentFrame > 5) currentFrame = 0;
-
-            frameRec.x = @as(f32, @floatFromInt(currentFrame)) * @as(f32, @floatFromInt(@divFloor(scarfy.width, 6)));
+        dt = rl.getFrameTime();
+        if (rl.isKeyPressed(rl.KeyboardKey.key_j)) {
+            switchColor();
         }
 
-        // Control frames speed
-        if (rl.isKeyPressed(rl.KeyboardKey.key_right)) {
-            framesSpeed += 1;
-        } else if (rl.isKeyPressed(rl.KeyboardKey.key_left)) {
-            framesSpeed -= 1;
+        if (rl.isKeyDown(rl.KeyboardKey.key_a)) {
+            player.rot -= player.speed * dt;
         }
 
-        if (framesSpeed > MAX_FRAME_SPEED) {
-            framesSpeed = MAX_FRAME_SPEED;
-        } else if (framesSpeed < MIN_FRAME_SPEED) {
-            framesSpeed = MIN_FRAME_SPEED;
+        if (rl.isKeyDown(rl.KeyboardKey.key_d)) {
+            player.rot += player.speed * dt;
         }
 
-        //----------------------------------------------------------------------------------
-
-        // Draw
+        // DRAWING
         //----------------------------------------------------------------------------------
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        rl.clearBackground(rl.Color.ray_white);
+        rl.clearBackground(bgColor);
 
-        rl.drawTexture(scarfy, 15, 40, rl.Color.white);
-        rl.drawRectangleLines(15, 40, scarfy.width, scarfy.height, rl.Color.lime);
-        rl.drawRectangleLines(
-            15 + @as(i32, @intFromFloat(frameRec.x)),
-            40 + @as(i32, @intFromFloat(frameRec.y)),
-            @as(i32, @intFromFloat(frameRec.width)),
-            @as(i32, @intFromFloat(frameRec.height)),
-            rl.Color.red,
-        );
+        drawPlayer();
+    }
+}
 
-        rl.drawText("FRAME SPEED: ", 165, 210, 10, rl.Color.dark_gray);
-        rl.drawText(rl.textFormat("%02i FPS", .{framesSpeed}), 575, 210, 10, rl.Color.dark_gray);
-        rl.drawText("PRESS RIGHT/LEFT KEYS to CHANGE SPEED!", 290, 240, 10, rl.Color.dark_gray);
-
-        for ([_]u32{0} ** MAX_FRAME_SPEED, 0..) |_, i| {
-            if (i < framesSpeed) {
-                rl.drawRectangle(250 + 21 * @as(i32, @intCast(i)), 205, 20, 20, rl.Color.red);
-            }
-            rl.drawRectangleLines(250 + 21 * @as(i32, @intCast(i)), 205, 20, 20, rl.Color.maroon);
-        }
-
-        scarfy.drawRec(frameRec, position, rl.Color.white); // Draw part of the texture
-
-        rl.drawText(
-            "(c) Scarfy sprite by Eiden Marsal",
-            screenWidth - 200,
-            screenHeight - 20,
-            10,
-            rl.Color.gray,
-        );
-        //----------------------------------------------------------------------------------
+pub fn switchColor() void {
+    if (std.meta.eql(bgColor, rl.Color.white)) {
+        bgColor = rl.Color.black;
+        fgColor = rl.Color.white;
+    } else {
+        bgColor = rl.Color.white;
+        fgColor = rl.Color.black;
     }
 }
