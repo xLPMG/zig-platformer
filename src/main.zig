@@ -49,13 +49,9 @@ var projectiles: std.ArrayList(Projectile) = undefined;
 //////////////////////////////////////////////////////////////
 
 fn switchColor() !void {
-    if (std.meta.eql(bgColor, rl.Color.white)) {
-        bgColor = rl.Color.black;
-        fgColor = rl.Color.white;
-    } else {
-        bgColor = rl.Color.white;
-        fgColor = rl.Color.black;
-    }
+    var oldBgColor = bgColor;
+    bgColor = fgColor;
+    fgColor = oldBgColor;
 }
 
 fn drawPlayer() !void {
