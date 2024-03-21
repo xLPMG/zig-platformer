@@ -27,6 +27,8 @@ const scaleCash = [_]f32{ 5, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50 };
 
 const enemyToughnessScalar: f32 = 1.2;
 const enemyColors = [_]rl.Color{ rl.Color.green, rl.Color.dark_green, rl.Color.red, rl.Color.purple, rl.Color.dark_purple };
+const enemyReward = [_]f32{ 2, 4, 6, 8, 10, 15, 20 };
+const MAX_ENEMY_DELAY = 30;
 //////////////////////////////////////////////////////////////
 /// VARIABLES
 //////////////////////////////////////////////////////////////
@@ -41,8 +43,9 @@ var timeSinceLastShot: f32 = 0;
 //////////////////////////////////////////////////////////////
 const State = struct {
     time: f32 = 0,
-    cash: u32 = 200,
+    cash: f32 = 0,
     wave: u32 = 1,
+    waveTime: f32 = 0,
     levelHealth: u32 = 1,
     levelDamage: u32 = 1,
     levelRotationalSpeed: u32 = 1,
@@ -71,8 +74,10 @@ const Enemy = struct {
     size: f32,
     health: f32,
     level: u32,
+    delay: f32,
 };
-var enemies: std.ArrayList(Enemy) = undefined;
+var hiddenEnemies: std.ArrayList(Enemy) = undefined;
+var visibleEnemies: std.ArrayList(Enemy) = undefined;
 
 const Projectile = struct {
     pos: rl.Vector2 = .{ .x = 0, .y = 0 },
@@ -107,15 +112,21 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
     for (0..amount) |_| {
         var level: u32 = wave;
         if (rng.float(f32) < 0.5) {
-            level = level + 1;
+            level += 1;
         }
         const speed: f32 = @as(f32, @floatFromInt(level)) * enemyToughnessScalar * (rng.float(f32) * 0.2 + 0.9);
 
-        //const offsetX: i32 = (-1 * @mod(rng.next(), 2)) * SCREEN_WIDTH;
-        //const offsetY: i32 = (-1 * @mod(rng.next(), 2)) * SCREEN_HEIGHT;
-
-        const position: rl.Vector2 = .{ .x = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_WIDTH)), .y = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_HEIGHT)) };
-
+        var position: rl.Vector2 = .{ .x = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_WIDTH)), .y = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_HEIGHT)) };
+        var side = @mod(rng.int(i32), 4);
+        if (side == 0) {
+            position = .{ .x = 0, .y = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_HEIGHT)) };
+        } else if (side == 1) {
+            position = .{ .x = SCREEN_WIDTH, .y = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_HEIGHT)) };
+        } else if (side == 2) {
+            position = .{ .x = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_WIDTH)), .y = 0 };
+        } else if (side == 3) {
+            position = .{ .x = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_WIDTH)), .y = SCREEN_HEIGHT };
+        }
         const delta: rl.Vector2 = rlm.vector2Subtract(player.pos, position);
         const rotationAngle: f32 = std.math.atan2(f32, delta.y, delta.x);
         const rotationDegrees: f32 = rotationAngle * (180.0 / std.math.pi);
@@ -124,13 +135,14 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
         std.log.info("{} {}", .{ moveDir.x, moveDir.y });
         const velocity: rl.Vector2 = rlm.vector2Scale(moveDir, speed);
 
-        try enemies.append(.{
+        try hiddenEnemies.append(.{
             .pos = position,
             .vel = velocity,
             .rot = rotationDegrees,
             .size = 10 / speed,
             .health = 10 * @as(f32, @floatFromInt(level)) * enemyToughnessScalar,
             .level = level,
+            .delay = rng.float(f32) * MAX_ENEMY_DELAY,
         });
     }
 }
@@ -153,6 +165,7 @@ fn update() !void {
     // TIME
     dt = rl.getFrameTime();
     state.time += dt;
+    state.waveTime += dt;
     timeSinceLastShot += dt;
 
     //USEFUL VARIABLES
@@ -184,14 +197,53 @@ fn update() !void {
 
     // ENEMIES
     var i: usize = 0;
-    while (i < enemies.items.len) {
-        var e = &enemies.items[i];
-        e.pos = rlm.vector2Add(e.pos, rlm.vector2Scale(e.vel, dt * 10));
-        //enemy hit player
-        if ((e.pos.x < player.pos.x + 5) and (e.pos.x > player.pos.x - 5) and (e.pos.y < player.pos.y + 5) and (e.pos.y > player.pos.y - 5)) {
-            _ = enemies.swapRemove(i);
-            //player.health = player.health - e.health;
+
+    // spawn in hidden enemies
+    while (i < hiddenEnemies.items.len) {
+        var e = &hiddenEnemies.items[i];
+        if (e.delay <= state.waveTime) {
+            try visibleEnemies.append(hiddenEnemies.swapRemove(i));
         }
+        i += 1;
+    }
+
+    // move visible enemies
+    i = 0;
+    while (i < visibleEnemies.items.len) {
+        var e = &visibleEnemies.items[i];
+        var potentialPos: rl.Vector2 = rlm.vector2Add(e.pos, rlm.vector2Scale(e.vel, dt * 10));
+        var doesCollide: bool = false;
+        for (visibleEnemies.items) |*ve| {
+            if (ve.pos.x != e.pos.x and ve.pos.y != e.pos.y) {
+                if (rlm.vector2Distance(potentialPos, ve.pos) < (ve.size + e.size + 5)) {
+                    doesCollide = true;
+                }
+            }
+        }
+
+        if (!doesCollide) {
+            //move
+            e.pos = potentialPos;
+        }
+        //enemy hit player
+        const offset: f32 = 5;
+        if (rlm.vector2Distance(e.pos, player.pos) < player.turretSize + offset) {
+            _ = visibleEnemies.swapRemove(i);
+            //player.health = player.health - e.health;
+        } else {
+            // enemy hit by projectile
+            var ip: usize = 0;
+            while (ip < projectiles.items.len) {
+                var p = &projectiles.items[ip];
+                if (rlm.vector2Distance(e.pos, p.pos) < e.size + p.size) {
+                    state.cash += getValueForLevel(&enemyReward, e.level);
+                    _ = visibleEnemies.swapRemove(i);
+                    _ = projectiles.swapRemove(ip);
+                }
+                ip += 1;
+            }
+        }
+
         i += 1;
     }
 
@@ -209,16 +261,16 @@ fn update() !void {
 }
 
 fn render() !void {
-    try drawPlayer();
-
     // PROJECTILES
-    for (projectiles.items) |p| {
+    for (projectiles.items) |*p| {
         rl.drawCircleV(p.pos, p.size, fgColor);
     }
     // ENEMIES
-    for (enemies.items) |e| {
+    for (visibleEnemies.items) |*e| {
         rl.drawCircleV(e.pos, e.size, enemyColors[0]);
     }
+
+    try drawPlayer();
 
     // WAVE
     const waveString: [:0]const u8 = rl.textFormat("WAVE %02i", .{state.wave});
@@ -227,42 +279,42 @@ fn render() !void {
     rl.drawText(waveString, waveStringX, 5, WAVE_FONT_SIZE, fgColor);
 
     // STATS
-    const cashString: [:0]const u8 = rl.textFormat("$%02i", .{state.cash});
+    const cashString: [:0]const u8 = rl.textFormat("$%.2f", .{state.cash});
     const cashStringWidth = rl.measureText(cashString, CASH_FONT_SIZE);
     rl.drawText(cashString, SCREEN_WIDTH - cashStringWidth - 5, 5, CASH_FONT_SIZE, fgColor);
 
     const y1 = STATS_FONT_SIZE * 0 + 5;
     rl.drawText("Turret health", statsNameX, y1, STATS_FONT_SIZE, fgColor);
     rl.drawText(rl.textFormat(": %.2f", .{player.health}), statsNumsX, y1, STATS_FONT_SIZE, fgColor);
-    if (@as(f32, @floatFromInt(state.cash)) >= @as(f32, @floatFromInt(state.levelHealth)) * getValueForLevel(&scaleCash, state.levelHealth)) {
+    if (state.cash >= @as(f32, @floatFromInt(state.levelHealth)) * getValueForLevel(&scaleCash, state.levelHealth)) {
         rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleHealth, state.levelHealth + 1), getValueForLevel(&scaleCash, state.levelHealth) }), statsUpgradeX, y1, STATS_FONT_SIZE, fgColor);
     }
 
     const y2 = STATS_FONT_SIZE * 1 + 5;
     rl.drawText("Damage", statsNameX, y2, STATS_FONT_SIZE, fgColor);
     rl.drawText(rl.textFormat(": %.2f", .{player.damage}), statsNumsX, y2, STATS_FONT_SIZE, fgColor);
-    if (@as(f32, @floatFromInt(state.cash)) >= @as(f32, @floatFromInt(state.levelDamage)) * getValueForLevel(&scaleCash, state.levelDamage)) {
+    if (state.cash >= @as(f32, @floatFromInt(state.levelDamage)) * getValueForLevel(&scaleCash, state.levelDamage)) {
         rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleDamage, state.levelDamage + 1), getValueForLevel(&scaleCash, state.levelDamage) }), statsUpgradeX, y2, STATS_FONT_SIZE, fgColor);
     }
 
     const y3 = STATS_FONT_SIZE * 2 + 5;
     rl.drawText("Turret speed", statsNameX, y3, STATS_FONT_SIZE, fgColor);
     rl.drawText(rl.textFormat(": %.2f", .{player.speed}), statsNumsX, y3, STATS_FONT_SIZE, fgColor);
-    if (@as(f32, @floatFromInt(state.cash)) >= @as(f32, @floatFromInt(state.levelRotationalSpeed)) * getValueForLevel(&scaleCash, state.levelRotationalSpeed)) {
+    if (state.cash >= @as(f32, @floatFromInt(state.levelRotationalSpeed)) * getValueForLevel(&scaleCash, state.levelRotationalSpeed)) {
         rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleRotationalSpeed, state.levelRotationalSpeed + 1), getValueForLevel(&scaleCash, state.levelRotationalSpeed) }), statsUpgradeX, y3, STATS_FONT_SIZE, fgColor);
     }
 
     const y4 = STATS_FONT_SIZE * 3 + 5;
     rl.drawText("Projectile speed", statsNameX, y4, STATS_FONT_SIZE, fgColor);
     rl.drawText(rl.textFormat(": %.2f", .{player.projectileSpeed}), statsNumsX, y4, STATS_FONT_SIZE, fgColor);
-    if (@as(f32, @floatFromInt(state.cash)) >= @as(f32, @floatFromInt(state.levelProjectileSpeed)) * getValueForLevel(&scaleCash, state.levelProjectileSpeed)) {
+    if (state.cash >= @as(f32, @floatFromInt(state.levelProjectileSpeed)) * getValueForLevel(&scaleCash, state.levelProjectileSpeed)) {
         rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleProjectileSpeed, state.levelProjectileSpeed + 1), getValueForLevel(&scaleCash, state.levelProjectileSpeed) }), statsUpgradeX, y4, STATS_FONT_SIZE, fgColor);
     }
 
     const y5 = STATS_FONT_SIZE * 4 + 5;
     rl.drawText("Gun cooldown", statsNameX, y5, STATS_FONT_SIZE, fgColor);
     rl.drawText(rl.textFormat(": %.2fs", .{player.cooldown}), statsNumsX, y5, STATS_FONT_SIZE, fgColor);
-    if (@as(f32, @floatFromInt(state.cash)) >= @as(f32, @floatFromInt(state.levelCooldown)) * getValueForLevel(&scaleCash, state.levelCooldown)) {
+    if (state.cash >= @as(f32, @floatFromInt(state.levelCooldown)) * getValueForLevel(&scaleCash, state.levelCooldown)) {
         rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleCooldown, state.levelCooldown + 1), getValueForLevel(&scaleCash, state.levelCooldown) }), statsUpgradeX, y5, STATS_FONT_SIZE, fgColor);
     }
 }
@@ -290,13 +342,15 @@ pub fn main() anyerror!void {
     };
 
     projectiles = std.ArrayList(Projectile).init(allocator);
-    defer projectiles.deinit();
+    hiddenEnemies = std.ArrayList(Enemy).init(allocator);
+    visibleEnemies = std.ArrayList(Enemy).init(allocator);
 
-    enemies = std.ArrayList(Enemy).init(allocator);
-    defer enemies.deinit();
+    defer projectiles.deinit();
+    defer hiddenEnemies.deinit();
+    defer visibleEnemies.deinit();
 
     // WINDOW & GAME LOOP
-    try generateEnemies(100, state.wave, 21413134);
+    try generateEnemies(50, state.wave, 21413134);
 
     rl.initWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "turret defense!");
     defer rl.closeWindow();
