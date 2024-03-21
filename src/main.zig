@@ -13,28 +13,43 @@ const CASH_FONT_SIZE: i16 = 24;
 const STATS_FONT_SIZE: i16 = 17;
 const WAVE_FONT_SIZE: i16 = 32;
 
-const statsUpgradeText = "^ %.2f -> $%.0f";
+const statsUpgradeValue = "^ %.2f";
+const statsUpgradeInstruction = "-> $%.0f | Press %i";
 const statsNameX: u32 = 5;
-const statsNumsX: u32 = 140;
-const statsUpgradeX: u32 = 195;
+const statsNumsX: u32 = 142;
+const statsUpgradeValX: u32 = 195;
+const statsUpgradeInsX: u32 = 255;
 
 const scaleHealth = [_]f32{ 10, 12 };
 const scaleDamage = [_]f32{ 1, 2, 5, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50 };
 const scaleRotationalSpeed = [_]f32{ 10, 1.1, 1.2, 1.5, 1.7, 2, 2.2, 2.4, 2.6, 2.8, 3 };
 const scaleProjectileSpeed = [_]f32{ 4, 5, 6, 7, 8, 9, 10 };
-const scaleCooldown = [_]f32{ 0.5, 1.9, 1.8, 1.6, 1.4, 1.2, 1, 0.8, 0.6, 0.5, 0.4, 0.3, 0.2 };
+const scaleCooldown = [_]f32{ 0.1, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1 };
 const scaleCash = [_]f32{ 5, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50 };
+
+const maxLevelHealth = scaleHealth.len;
+const maxLevelDamage = scaleDamage.len;
+const maxLevelRotationalSpeed = scaleRotationalSpeed.len;
+const maxLevelProjectileSpeed = scaleProjectileSpeed.len;
+const maxLevelCooldown = scaleCooldown.len;
 
 const enemyToughnessScalar: f32 = 1.2;
 const enemyColors = [_]rl.Color{ rl.Color.green, rl.Color.dark_green, rl.Color.red, rl.Color.purple, rl.Color.dark_purple };
 const enemyReward = [_]f32{ 2, 4, 6, 8, 10, 15, 20 };
 const MAX_ENEMY_DELAY = 30;
+
+const KEY_UPGRADE_HEALTH: u32 = 1;
+const KEY_UPGRADE_DAMAGE: u32 = 2;
+const KEY_UPGRADE_ROT_SPEED: u32 = 3;
+const KEY_UPGRADE_PRO_SPEED: u32 = 4;
+const KEY_UPGRADE_COOLDOWN: u32 = 5;
 //////////////////////////////////////////////////////////////
 /// VARIABLES
 //////////////////////////////////////////////////////////////
 
 var bgColor = rl.Color.black;
 var fgColor = rl.Color.white;
+var highlightColor = rl.Color.red;
 var dt: f32 = 1;
 var timeSinceLastShot: f32 = 0;
 
@@ -60,7 +75,7 @@ const Player = struct {
     turretSize: f32,
     gunSize: rl.Vector2,
     rot: f32,
-    speed: f32,
+    rotationalSpeed: f32,
     damage: f32,
     projectileSpeed: f32,
     cooldown: f32,
@@ -178,11 +193,11 @@ fn update() !void {
     }
 
     if (rl.isKeyDown(.key_a)) {
-        player.rot -= player.speed * math.tau * dt;
+        player.rot -= player.rotationalSpeed * math.tau * dt;
     }
 
     if (rl.isKeyDown(.key_d)) {
-        player.rot += player.speed * math.tau * dt;
+        player.rot += player.rotationalSpeed * math.tau * dt;
     }
 
     if (rl.isKeyDown(.key_space)) {
@@ -192,6 +207,48 @@ fn update() !void {
                 .vel = rlm.vector2Scale(gunDir, player.projectileSpeed),
             });
             timeSinceLastShot = 0.0;
+        }
+    }
+
+    if (rl.isKeyPressed(.key_one) and state.levelHealth != maxLevelHealth) {
+        // upgrade health
+        const cashNeededForUpgrade = getValueForLevel(&scaleCash, state.levelHealth);
+        if (state.cash >= cashNeededForUpgrade) {
+            state.cash -= cashNeededForUpgrade;
+            state.levelHealth += 1;
+            player.health = getValueForLevel(&scaleHealth, state.levelHealth);
+        }
+    } else if (rl.isKeyPressed(.key_two) and state.levelDamage != maxLevelDamage) {
+        // upgrade damage
+        const cashNeededForUpgrade = getValueForLevel(&scaleCash, state.levelDamage);
+        if (state.cash >= cashNeededForUpgrade) {
+            state.cash -= cashNeededForUpgrade;
+            state.levelDamage += 1;
+            player.damage = getValueForLevel(&scaleDamage, state.levelDamage);
+        }
+    } else if (rl.isKeyPressed(.key_three) and state.levelRotationalSpeed != maxLevelRotationalSpeed) {
+        // upgrade rotational speed
+        const cashNeededForUpgrade = getValueForLevel(&scaleCash, state.levelRotationalSpeed);
+        if (state.cash >= cashNeededForUpgrade) {
+            state.cash -= cashNeededForUpgrade;
+            state.levelRotationalSpeed += 1;
+            player.rotationalSpeed = getValueForLevel(&scaleRotationalSpeed, state.levelRotationalSpeed);
+        }
+    } else if (rl.isKeyPressed(.key_four) and state.levelProjectileSpeed != maxLevelProjectileSpeed) {
+        // upgrade projectile speed
+        const cashNeededForUpgrade = getValueForLevel(&scaleCash, state.levelProjectileSpeed);
+        if (state.cash >= cashNeededForUpgrade) {
+            state.cash -= cashNeededForUpgrade;
+            state.levelProjectileSpeed += 1;
+            player.projectileSpeed = getValueForLevel(&scaleProjectileSpeed, state.levelProjectileSpeed);
+        }
+    } else if (rl.isKeyPressed(.key_five) and state.levelCooldown != maxLevelCooldown) {
+        // upgrade cooldown
+        const cashNeededForUpgrade = getValueForLevel(&scaleCash, state.levelCooldown);
+        if (state.cash >= cashNeededForUpgrade) {
+            state.cash -= cashNeededForUpgrade;
+            state.levelCooldown += 1;
+            player.cooldown = getValueForLevel(&scaleCooldown, state.levelCooldown);
         }
     }
 
@@ -260,6 +317,48 @@ fn update() !void {
     }
 }
 
+fn drawStat(
+    rowNum: i32,
+    name: [:0]const u8,
+    currentValue: f32,
+    currentLevel: u32,
+    maxLevel: u32,
+    scale: []const f32,
+    upgradeKey: u32,
+) !void {
+    const textHeight: i32 = STATS_FONT_SIZE * rowNum + 5;
+    rl.drawText(name, statsNameX, textHeight, STATS_FONT_SIZE, fgColor);
+    rl.drawText(rl.textFormat(": %.2f", .{currentValue}), statsNumsX, textHeight, STATS_FONT_SIZE, fgColor);
+
+    if (currentLevel == maxLevel) {
+        rl.drawText(
+            "MAX",
+            statsUpgradeValX,
+            textHeight,
+            STATS_FONT_SIZE,
+            highlightColor,
+        );
+    } else {
+        const cashNeededForUpgrade = getValueForLevel(&scaleCash, currentLevel);
+        if (state.cash >= cashNeededForUpgrade) {
+            rl.drawText(
+                rl.textFormat(statsUpgradeValue, .{getValueForLevel(scale, currentLevel + 1)}),
+                statsUpgradeValX,
+                textHeight,
+                STATS_FONT_SIZE,
+                highlightColor,
+            );
+            rl.drawText(
+                rl.textFormat(statsUpgradeInstruction, .{ getValueForLevel(&scaleCash, currentLevel), upgradeKey }),
+                statsUpgradeInsX,
+                textHeight,
+                STATS_FONT_SIZE,
+                highlightColor,
+            );
+        }
+    }
+}
+
 fn render() !void {
     // PROJECTILES
     for (projectiles.items) |*p| {
@@ -283,40 +382,11 @@ fn render() !void {
     const cashStringWidth = rl.measureText(cashString, CASH_FONT_SIZE);
     rl.drawText(cashString, SCREEN_WIDTH - cashStringWidth - 5, 5, CASH_FONT_SIZE, fgColor);
 
-    const y1 = STATS_FONT_SIZE * 0 + 5;
-    rl.drawText("Turret health", statsNameX, y1, STATS_FONT_SIZE, fgColor);
-    rl.drawText(rl.textFormat(": %.2f", .{player.health}), statsNumsX, y1, STATS_FONT_SIZE, fgColor);
-    if (state.cash >= @as(f32, @floatFromInt(state.levelHealth)) * getValueForLevel(&scaleCash, state.levelHealth)) {
-        rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleHealth, state.levelHealth + 1), getValueForLevel(&scaleCash, state.levelHealth) }), statsUpgradeX, y1, STATS_FONT_SIZE, fgColor);
-    }
-
-    const y2 = STATS_FONT_SIZE * 1 + 5;
-    rl.drawText("Damage", statsNameX, y2, STATS_FONT_SIZE, fgColor);
-    rl.drawText(rl.textFormat(": %.2f", .{player.damage}), statsNumsX, y2, STATS_FONT_SIZE, fgColor);
-    if (state.cash >= @as(f32, @floatFromInt(state.levelDamage)) * getValueForLevel(&scaleCash, state.levelDamage)) {
-        rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleDamage, state.levelDamage + 1), getValueForLevel(&scaleCash, state.levelDamage) }), statsUpgradeX, y2, STATS_FONT_SIZE, fgColor);
-    }
-
-    const y3 = STATS_FONT_SIZE * 2 + 5;
-    rl.drawText("Turret speed", statsNameX, y3, STATS_FONT_SIZE, fgColor);
-    rl.drawText(rl.textFormat(": %.2f", .{player.speed}), statsNumsX, y3, STATS_FONT_SIZE, fgColor);
-    if (state.cash >= @as(f32, @floatFromInt(state.levelRotationalSpeed)) * getValueForLevel(&scaleCash, state.levelRotationalSpeed)) {
-        rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleRotationalSpeed, state.levelRotationalSpeed + 1), getValueForLevel(&scaleCash, state.levelRotationalSpeed) }), statsUpgradeX, y3, STATS_FONT_SIZE, fgColor);
-    }
-
-    const y4 = STATS_FONT_SIZE * 3 + 5;
-    rl.drawText("Projectile speed", statsNameX, y4, STATS_FONT_SIZE, fgColor);
-    rl.drawText(rl.textFormat(": %.2f", .{player.projectileSpeed}), statsNumsX, y4, STATS_FONT_SIZE, fgColor);
-    if (state.cash >= @as(f32, @floatFromInt(state.levelProjectileSpeed)) * getValueForLevel(&scaleCash, state.levelProjectileSpeed)) {
-        rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleProjectileSpeed, state.levelProjectileSpeed + 1), getValueForLevel(&scaleCash, state.levelProjectileSpeed) }), statsUpgradeX, y4, STATS_FONT_SIZE, fgColor);
-    }
-
-    const y5 = STATS_FONT_SIZE * 4 + 5;
-    rl.drawText("Gun cooldown", statsNameX, y5, STATS_FONT_SIZE, fgColor);
-    rl.drawText(rl.textFormat(": %.2fs", .{player.cooldown}), statsNumsX, y5, STATS_FONT_SIZE, fgColor);
-    if (state.cash >= @as(f32, @floatFromInt(state.levelCooldown)) * getValueForLevel(&scaleCash, state.levelCooldown)) {
-        rl.drawText(rl.textFormat(statsUpgradeText, .{ getValueForLevel(&scaleCooldown, state.levelCooldown + 1), getValueForLevel(&scaleCash, state.levelCooldown) }), statsUpgradeX, y5, STATS_FONT_SIZE, fgColor);
-    }
+    try drawStat(0, "Turret health", player.health, state.levelHealth, maxLevelHealth, &scaleHealth, KEY_UPGRADE_HEALTH);
+    try drawStat(1, "Damage", player.damage, state.levelDamage, maxLevelDamage, &scaleDamage, KEY_UPGRADE_DAMAGE);
+    try drawStat(2, "Rotational speed", player.rotationalSpeed, state.levelRotationalSpeed, maxLevelRotationalSpeed, &scaleRotationalSpeed, KEY_UPGRADE_ROT_SPEED);
+    try drawStat(3, "Projectile speed", player.projectileSpeed, state.levelProjectileSpeed, maxLevelProjectileSpeed, &scaleProjectileSpeed, KEY_UPGRADE_PRO_SPEED);
+    try drawStat(4, "Gun cooldown", player.cooldown, state.levelCooldown, maxLevelCooldown, &scaleCooldown, KEY_UPGRADE_COOLDOWN);
 }
 
 //////////////////////////////////////////////////////////////
@@ -335,7 +405,7 @@ pub fn main() anyerror!void {
         .turretSize = 10,
         .gunSize = .{ .x = 10, .y = 20 },
         .rot = 0.0,
-        .speed = getValueForLevel(&scaleRotationalSpeed, 1),
+        .rotationalSpeed = getValueForLevel(&scaleRotationalSpeed, 1),
         .damage = getValueForLevel(&scaleDamage, 1),
         .projectileSpeed = getValueForLevel(&scaleProjectileSpeed, 1),
         .cooldown = getValueForLevel(&scaleCooldown, 1),
