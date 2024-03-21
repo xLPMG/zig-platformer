@@ -43,6 +43,7 @@ const KEY_UPGRADE_DAMAGE: u32 = 2;
 const KEY_UPGRADE_ROT_SPEED: u32 = 3;
 const KEY_UPGRADE_PRO_SPEED: u32 = 4;
 const KEY_UPGRADE_COOLDOWN: u32 = 5;
+
 //////////////////////////////////////////////////////////////
 /// VARIABLES
 //////////////////////////////////////////////////////////////
@@ -56,6 +57,7 @@ var timeSinceLastShot: f32 = 0;
 //////////////////////////////////////////////////////////////
 /// STRUCTS & CONTAINERS
 //////////////////////////////////////////////////////////////
+
 const State = struct {
     time: f32 = 0,
     cash: f32 = 0,
@@ -90,6 +92,7 @@ const Enemy = struct {
     health: f32,
     level: u32,
     delay: f32,
+    col: rl.Color,
 };
 var hiddenEnemies: std.ArrayList(Enemy) = undefined;
 var visibleEnemies: std.ArrayList(Enemy) = undefined;
@@ -100,6 +103,15 @@ const Projectile = struct {
     size: f32 = 5,
 };
 var projectiles: std.ArrayList(Projectile) = undefined;
+
+const Particle = struct {
+    pos: rl.Vector2 = .{ .x = 0, .y = 0 },
+    vel: rl.Vector2 = .{ .x = 0, .y = 0 },
+    size: f32 = 1,
+    ttl: f32 = 2,
+    col: rl.Color,
+};
+var particles: std.ArrayList(Particle) = undefined;
 
 //////////////////////////////////////////////////////////////
 /// FUNCTIONS
@@ -117,6 +129,40 @@ fn getValueForLevel(array: []const f32, level: u32) f32 {
         return array[array.len - 1];
     } else {
         return array[index];
+    }
+}
+
+fn getColorForLevel(array: []const rl.Color, level: u32) rl.Color {
+    var index = level - 1;
+    if (index >= array.len) {
+        return array[array.len - 1];
+    } else {
+        return array[index];
+    }
+}
+
+fn generateExplosion(position: rl.Vector2, amount: usize, size: f32, color: rl.Color) !void {
+    var prng = rand.Xoshiro256.init(@as(u64, @intFromFloat(state.time)));
+    var rng = prng.random();
+
+    for (0..amount) |_| {
+        const angle = math.tau * rng.float(f32);
+        try particles.append(.{
+            .pos = rlm.vector2Add(
+                position,
+                rl.Vector2.init(rng.float(f32) * 3, rng.float(f32) * 3),
+            ),
+            .vel = rlm.vector2Scale(
+                rl.Vector2.init(
+                    math.cos(angle),
+                    math.sin(angle),
+                ),
+                3.0 + 4.0 * rng.float(f32),
+            ),
+            .ttl = 0.5 + (0.4 * rng.float(f32)),
+            .col = color,
+            .size = 0.1 * size + (0.4 * rng.float(f32)),
+        });
     }
 }
 
@@ -158,6 +204,7 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
             .health = 10 * @as(f32, @floatFromInt(level)) * enemyToughnessScalar,
             .level = level,
             .delay = rng.float(f32) * MAX_ENEMY_DELAY,
+            .col = getColorForLevel(&enemyColors, level),
         });
     }
 }
@@ -294,6 +341,8 @@ fn update() !void {
                 var p = &projectiles.items[ip];
                 if (rlm.vector2Distance(e.pos, p.pos) < e.size + p.size) {
                     state.cash += getValueForLevel(&enemyReward, e.level);
+                    try generateExplosion(e.pos, 10, e.size, rl.Color.green);
+
                     _ = visibleEnemies.swapRemove(i);
                     _ = projectiles.swapRemove(ip);
                 }
@@ -313,6 +362,19 @@ fn update() !void {
         if ((p.pos.x < 0) or (p.pos.y < 0) or (p.pos.x > SCREEN_WIDTH) or (p.pos.y > SCREEN_HEIGHT)) {
             _ = projectiles.swapRemove(i);
         }
+        i += 1;
+    }
+
+    // PARTICLES
+    i = 0;
+    while (i < particles.items.len) {
+        var p = &particles.items[i];
+        p.pos = rlm.vector2Add(p.pos, rlm.vector2Scale(p.vel, dt * 10));
+        p.ttl -= dt;
+        if (p.ttl <= 0) {
+            _ = particles.swapRemove(i);
+        }
+
         i += 1;
     }
 }
@@ -366,7 +428,11 @@ fn render() !void {
     }
     // ENEMIES
     for (visibleEnemies.items) |*e| {
-        rl.drawCircleV(e.pos, e.size, enemyColors[0]);
+        rl.drawCircleV(e.pos, e.size, e.col);
+    }
+    // PARTICLES
+    for (particles.items) |*p| {
+        rl.drawCircleV(p.pos, p.size, p.col);
     }
 
     try drawPlayer();
@@ -412,10 +478,12 @@ pub fn main() anyerror!void {
     };
 
     projectiles = std.ArrayList(Projectile).init(allocator);
+    particles = std.ArrayList(Particle).init(allocator);
     hiddenEnemies = std.ArrayList(Enemy).init(allocator);
     visibleEnemies = std.ArrayList(Enemy).init(allocator);
 
     defer projectiles.deinit();
+    defer particles.deinit();
     defer hiddenEnemies.deinit();
     defer visibleEnemies.deinit();
 
