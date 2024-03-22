@@ -12,6 +12,7 @@ const SCREEN_HEIGHT = 600;
 const CASH_FONT_SIZE: i16 = 24;
 const STATS_FONT_SIZE: i16 = 17;
 const WAVE_FONT_SIZE: i16 = 32;
+const LEVEL_COMPLETED_FONT_SIZE: i16 = 64;
 
 const statsUpgradeValue = "^ %.2f";
 const statsUpgradeInstruction = "-> $%.0f | Press %i";
@@ -20,12 +21,12 @@ const statsNumsX: u32 = 142;
 const statsUpgradeValX: u32 = 195;
 const statsUpgradeInsX: u32 = 255;
 
-const scaleHealth = [_]f32{ 10, 12.5, 15, 17.5, 20, 25, 30 };
-const scaleDamage = [_]f32{ 1, 2, 5, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50 };
-const scaleRotationalSpeed = [_]f32{ 10, 1.1, 1.2, 1.5, 1.7, 2, 2.2, 2.4, 2.6, 2.8, 3 };
-const scaleProjectileSpeed = [_]f32{ 4, 5, 6, 7, 8, 9, 10 };
+const scaleHealth = [_]f32{ 5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30 };
+const scaleDamage = [_]f32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+const scaleRotationalSpeed = [_]f32{ 10, 12, 14, 16, 18, 20 };
+const scaleProjectileSpeed = [_]f32{ 4, 5, 6, 7, 8, 9, 10, 11, 12 };
 const scaleCooldown = [_]f32{ 1.6, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15 };
-const scaleCash = [_]f32{ 5, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50 };
+const scaleCash = [_]f32{ 5, 5, 10, 12.5, 15, 17.5, 20, 25, 30, 35, 40, 45, 50 };
 
 const maxLevelHealth = scaleHealth.len;
 const maxLevelDamage = scaleDamage.len;
@@ -33,10 +34,25 @@ const maxLevelRotationalSpeed = scaleRotationalSpeed.len;
 const maxLevelProjectileSpeed = scaleProjectileSpeed.len;
 const maxLevelCooldown = scaleCooldown.len;
 
-const enemyToughnessScalar: f32 = 1.2;
-const enemyColors = [_]rl.Color{ rl.Color.green, rl.Color.dark_green, rl.Color.red, rl.Color.purple, rl.Color.dark_purple };
-const enemyReward = [_]f32{ 2, 4, 6, 8, 10, 15, 20 };
-const enemyDamage = [_]f32{ 2, 4, 6, 8, 10, 12, 14 };
+const enemyColors = [_]rl.Color{
+    rl.Color.green,
+    rl.Color.green,
+    rl.Color.dark_green,
+    rl.Color.dark_green,
+    rl.Color.yellow,
+    rl.Color.yellow,
+    rl.Color.orange,
+    rl.Color.orange,
+    rl.Color.red,
+    rl.Color.red,
+    rl.Color.purple,
+    rl.Color.purple,
+    rl.Color.dark_purple,
+    rl.Color.dark_purple,
+};
+const enemyReward = [_]f32{ 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 10, 10, 15, 15, 20 };
+const enemyDamage = [_]f32{ 1, 1, 2, 2, 3, 3, 4, 4, 6, 6, 8, 8, 10, 10, 12, 12, 14 };
+const enemySides = [_]f32{ 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8 };
 // max delay until enemies become visible
 const MAX_ENEMY_DELAY = 30;
 // delay for which enemies will wait when their path is blocked
@@ -52,6 +68,8 @@ const KEY_UPGRADE_ROT_SPEED: u32 = 3;
 const KEY_UPGRADE_PRO_SPEED: u32 = 4;
 const KEY_UPGRADE_COOLDOWN: u32 = 5;
 
+const LEVEL_DONE_DELAY: f32 = 5;
+
 //////////////////////////////////////////////////////////////
 /// VARIABLES
 //////////////////////////////////////////////////////////////
@@ -61,6 +79,10 @@ var fgColor = rl.Color.white;
 var highlightColor = rl.Color.red;
 var dt: f32 = 1;
 var timeSinceLastShot: f32 = 0;
+
+var levelDone: bool = false;
+var levelFailed: bool = false;
+var levelDoneTimer: f32 = 0;
 
 //////////////////////////////////////////////////////////////
 /// STRUCTS & CONTAINERS
@@ -136,6 +158,10 @@ var sound: Sound = undefined;
 /// FUNCTIONS
 //////////////////////////////////////////////////////////////
 
+fn getTimeSeed() u64 {
+    return @as(u64, @intCast(std.time.timestamp()));
+}
+
 fn switchColor() !void {
     var oldBgColor = bgColor;
     bgColor = fgColor;
@@ -161,7 +187,7 @@ fn getColorForLevel(array: []const rl.Color, level: u32) rl.Color {
 }
 
 fn generateExplosion(position: rl.Vector2, amount: usize, ttl: f32, color: rl.Color) !void {
-    var prng = rand.Xoshiro256.init(@as(u64, @intFromFloat(state.time * 10000)));
+    var prng = rand.Xoshiro256.init(getTimeSeed());
     var rng = prng.random();
 
     for (0..amount) |_| {
@@ -194,9 +220,9 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
         if (rng.float(f32) < 0.5) {
             level += 1;
         }
-        const speed: f32 = @as(f32, @floatFromInt(level)) * enemyToughnessScalar * (rng.float(f32) * 0.2 + 0.9);
+        const speed: f32 = @as(f32, @floatFromInt(level)) * (rng.float(f32) * 0.3 + 0.8);
 
-        var position: rl.Vector2 = .{ .x = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_WIDTH)), .y = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_HEIGHT)) };
+        var position: rl.Vector2 = undefined;
         var side = @mod(rng.int(i32), 4);
         if (side == 0) {
             position = .{ .x = 0, .y = rng.float(f32) * @as(f32, @floatFromInt(SCREEN_HEIGHT)) };
@@ -217,11 +243,11 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
             .pos = position,
             .vel = velocity,
             .rot = rotationDegrees,
-            .size = 10 / speed,
-            .health = 10 * @as(f32, @floatFromInt(level)) * enemyToughnessScalar,
+            .size = 12 - (getValueForLevel(&enemySides, level)),
+            .health = @as(f32, @floatFromInt(level)),
             .damage = getValueForLevel(&enemyDamage, level),
             .level = level,
-            .delay = rng.float(f32) * MAX_ENEMY_DELAY,
+            .delay = 2 + rng.float(f32) * MAX_ENEMY_DELAY,
             .col = getColorForLevel(&enemyColors, level),
         });
     }
@@ -241,12 +267,83 @@ fn drawPlayer() !void {
     rl.drawRectanglePro(rec, .{ .x = player.gunSize.x / 2, .y = 0 }, player.rot, fgColor);
 }
 
+fn initLevelLogic() !void {
+    levelDone = false;
+
+    // first mini wave
+    for (0..5) |i| {
+        const speed: f32 = 2;
+
+        var position: rl.Vector2 = .{ .x = 0, .y = SCREEN_HEIGHT / 2 };
+        const delta: rl.Vector2 = rlm.vector2Subtract(player.pos, position);
+        const rotationAngle: f32 = std.math.atan2(f32, delta.y, delta.x);
+        const rotationDegrees: f32 = rotationAngle * (180.0 / std.math.pi);
+        const moveDir = rl.Vector2.init(math.cos(rotationAngle), math.sin(rotationAngle));
+        const velocity: rl.Vector2 = rlm.vector2Scale(moveDir, speed);
+
+        try hiddenEnemies.append(.{
+            .pos = position,
+            .vel = velocity,
+            .rot = rotationDegrees,
+            .size = 15,
+            .health = 2,
+            .damage = 1,
+            .level = 1,
+            .delay = 2.0 * @as(f32, @floatFromInt(i)),
+            .col = rl.Color.green,
+        });
+    }
+
+    // second mini wave
+    for (0..5) |i| {
+        const speed: f32 = 2;
+
+        var position: rl.Vector2 = .{ .x = SCREEN_WIDTH, .y = SCREEN_HEIGHT / 2 };
+        const delta: rl.Vector2 = rlm.vector2Subtract(player.pos, position);
+        const rotationAngle: f32 = std.math.atan2(f32, delta.y, delta.x);
+        const rotationDegrees: f32 = rotationAngle * (180.0 / std.math.pi);
+        const moveDir = rl.Vector2.init(math.cos(rotationAngle), math.sin(rotationAngle));
+        const velocity: rl.Vector2 = rlm.vector2Scale(moveDir, speed);
+
+        try hiddenEnemies.append(.{
+            .pos = position,
+            .vel = velocity,
+            .rot = rotationDegrees,
+            .size = 15,
+            .health = 2,
+            .damage = 1,
+            .level = 1,
+            .delay = 25 + 2.0 * @as(f32, @floatFromInt(i)),
+            .col = rl.Color.green,
+        });
+    }
+}
+
+fn updateLevelLogic() !void {
+    if (levelDone == true) {
+        if (levelDoneTimer > 0) {
+            levelDoneTimer -= dt;
+        } else {
+            levelDoneTimer = 0;
+            levelFailed = false;
+            levelDone = false;
+
+            // enter new level
+            state.wave += 1;
+            state.waveTime = 0;
+            try generateEnemies(state.wave * 8, state.wave, getTimeSeed());
+        }
+    }
+}
+
 fn update() !void {
     // TIME
     dt = rl.getFrameTime();
     state.time += dt;
     state.waveTime += dt;
     timeSinceLastShot += dt;
+
+    try updateLevelLogic();
 
     //USEFUL VARIABLES
     const dirRadians = (player.rot + 90) * (math.pi / 180.0);
@@ -369,6 +466,7 @@ fn update() !void {
         //move
         e.pos = potentialPos;
 
+        var enemyDied: bool = false;
         //enemy hit player
         const offset: f32 = 15;
         if (rlm.vector2Distance(e.pos, player.pos) < player.turretSize + offset) {
@@ -381,6 +479,7 @@ fn update() !void {
             rl.playSound(sound.explosion2);
             player.health -= e.damage;
             _ = visibleEnemies.swapRemove(i);
+            enemyDied = true;
         } else {
             // enemy hit by projectile
             var ip: usize = 0;
@@ -399,6 +498,7 @@ fn update() !void {
                         rl.playSound(sound.explosion1);
                         state.cash += getValueForLevel(&enemyReward, e.level);
                         _ = visibleEnemies.swapRemove(i);
+                        enemyDied = true;
                     } else {
                         try generateExplosion(
                             e.pos,
@@ -412,6 +512,13 @@ fn update() !void {
                     _ = projectiles.swapRemove(ip);
                 }
                 ip += 1;
+            }
+        }
+
+        if (enemyDied == true) {
+            if (hiddenEnemies.items.len == 0 and visibleEnemies.items.len == 0) {
+                levelDone = true;
+                levelDoneTimer = LEVEL_DONE_DELAY;
             }
         }
 
@@ -504,10 +611,18 @@ fn render() !void {
 
     // ENEMIES
     for (visibleEnemies.items) |*e| {
-        rl.drawCircleV(e.pos, e.size, e.col);
+        rl.drawPoly(
+            e.pos,
+            @as(i32, @intFromFloat(getValueForLevel(&enemySides, e.level))),
+            e.size,
+            e.rot,
+            e.col,
+        );
     }
 
-    try drawPlayer();
+    if (!levelFailed) {
+        try drawPlayer();
+    }
 
     // WAVE
     const waveString: [:0]const u8 = rl.textFormat("WAVE %02i", .{state.wave});
@@ -526,6 +641,31 @@ fn render() !void {
     try drawStat(3, "Projectile speed", player.projectileSpeed, state.levelProjectileSpeed, maxLevelProjectileSpeed, &scaleProjectileSpeed, KEY_UPGRADE_PRO_SPEED);
     try drawStat(4, "Gun cooldown", player.cooldown, state.levelCooldown, maxLevelCooldown, &scaleCooldown, KEY_UPGRADE_COOLDOWN);
 
+    // LEVEL DONE
+    if (levelDoneTimer > 0) {
+        if (levelFailed == true) {
+            const levelFailedString: [:0]const u8 = "LEVEL FAILED!";
+            const levelFailedStringWidth = rl.measureText(levelFailedString, LEVEL_COMPLETED_FONT_SIZE);
+            rl.drawText(
+                levelFailedString,
+                @divFloor(SCREEN_WIDTH, 2) - @divFloor(levelFailedStringWidth, 2),
+                SCREEN_HEIGHT / 2 - LEVEL_COMPLETED_FONT_SIZE,
+                LEVEL_COMPLETED_FONT_SIZE,
+                highlightColor,
+            );
+        } else {
+            const levelDoneString: [:0]const u8 = "LEVEL COMPLETED";
+            const levelDoneStringWidth = rl.measureText(levelDoneString, LEVEL_COMPLETED_FONT_SIZE);
+            rl.drawText(
+                levelDoneString,
+                @divFloor(SCREEN_WIDTH, 2) - @divFloor(levelDoneStringWidth, 2),
+                SCREEN_HEIGHT / 2 - LEVEL_COMPLETED_FONT_SIZE,
+                LEVEL_COMPLETED_FONT_SIZE,
+                highlightColor,
+            );
+        }
+    }
+
     // FPS
     //rl.drawFPS(5, SCREEN_HEIGHT - 25);
 }
@@ -534,7 +674,7 @@ fn initState() !void {
     state = .{
         .time = 0,
         .cash = 0,
-        .wave = 1,
+        .wave = 0,
         .waveTime = 0,
         .levelHealth = 1,
         .levelDamage = 1,
@@ -573,6 +713,10 @@ fn die() !void {
 
     try initState();
     try initPlayer();
+
+    levelFailed = true;
+    levelDone = true;
+    levelDoneTimer = LEVEL_DONE_DELAY;
 }
 
 //////////////////////////////////////////////////////////////
@@ -612,8 +756,7 @@ pub fn main() anyerror!void {
     };
 
     // GAME LOOP
-    try generateEnemies(50, state.wave, 21413134);
-
+    try initLevelLogic();
     while (!rl.windowShouldClose()) {
         try update();
 
