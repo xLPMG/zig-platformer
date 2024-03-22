@@ -54,7 +54,7 @@ const enemyReward = [_]f32{ 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 10, 10, 15, 15, 20 };
 const enemyDamage = [_]f32{ 1, 1, 2, 2, 3, 3, 4, 4, 6, 6, 8, 8, 10, 10, 12, 12, 14 };
 const enemySides = [_]f32{ 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8 };
 // max delay until enemies become visible
-const MAX_ENEMY_DELAY = 30;
+const MAX_ENEMY_DELAY = 4;
 // delay for which enemies will wait when their path is blocked
 const ENEMY_WAIT_DELAY = 2.5;
 
@@ -83,6 +83,9 @@ var timeSinceLastShot: f32 = 0;
 var levelDone: bool = false;
 var levelFailed: bool = false;
 var levelDoneTimer: f32 = 0;
+
+var scope: bool = false;
+var autoShoot: bool = false;
 
 //////////////////////////////////////////////////////////////
 /// STRUCTS & CONTAINERS
@@ -247,7 +250,7 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
             .health = @as(f32, @floatFromInt(level)),
             .damage = getValueForLevel(&enemyDamage, level),
             .level = level,
-            .delay = 2 + rng.float(f32) * MAX_ENEMY_DELAY,
+            .delay = 2 + rng.float(f32) * MAX_ENEMY_DELAY * @as(f32, @floatFromInt(amount)),
             .col = getColorForLevel(&enemyColors, level),
         });
     }
@@ -320,7 +323,7 @@ fn initLevelLogic() !void {
 }
 
 fn updateLevelLogic() !void {
-    if (levelDone == true) {
+    if (levelDone) {
         if (levelDoneTimer > 0) {
             levelDoneTimer -= dt;
         } else {
@@ -331,7 +334,7 @@ fn updateLevelLogic() !void {
             // enter new level
             state.wave += 1;
             state.waveTime = 0;
-            try generateEnemies(state.wave * 8, state.wave, getTimeSeed());
+            try generateEnemies(8 + state.wave * 4, state.wave, getTimeSeed());
         }
     }
 }
@@ -350,8 +353,16 @@ fn update() !void {
     const gunDir = rl.Vector2.init(math.cos(dirRadians), math.sin(dirRadians));
 
     // INPUTS
+    if (rl.isKeyPressed(.key_h)) {
+        scope = !scope;
+    }
+
     if (rl.isKeyPressed(.key_j)) {
         try switchColor();
+    }
+
+    if (rl.isKeyPressed(.key_k)) {
+        autoShoot = !autoShoot;
     }
 
     if (rl.isKeyDown(.key_a)) {
@@ -362,7 +373,7 @@ fn update() !void {
         player.rot += player.rotationalSpeed * math.tau * dt;
     }
 
-    if (rl.isKeyDown(.key_space)) {
+    if (rl.isKeyDown(.key_space) or autoShoot) {
         if (timeSinceLastShot > player.cooldown) {
             try projectiles.append(.{
                 .pos = rlm.vector2Add(player.pos, rlm.vector2Scale(gunDir, player.gunSize.y + 4)),
@@ -515,7 +526,7 @@ fn update() !void {
             }
         }
 
-        if (enemyDied == true) {
+        if (enemyDied) {
             if (hiddenEnemies.items.len == 0 and visibleEnemies.items.len == 0) {
                 levelDone = true;
                 levelDoneTimer = LEVEL_DONE_DELAY;
@@ -599,6 +610,13 @@ fn drawStat(
 }
 
 fn render() !void {
+    // SCOPE
+    if (scope) {
+        const radians = (player.rot + 90) * (math.pi / 180.0);
+        const endPos = rlm.vector2Add(player.pos, rl.Vector2.init(math.cos(radians) * 700, math.sin(radians) * 700));
+        rl.drawLineV(player.pos, endPos, highlightColor);
+    }
+
     // PARTICLES
     for (particles.items) |*p| {
         rl.drawCircleV(p.pos, p.size, p.col);
@@ -643,7 +661,7 @@ fn render() !void {
 
     // LEVEL DONE
     if (levelDoneTimer > 0) {
-        if (levelFailed == true) {
+        if (levelFailed) {
             const levelFailedString: [:0]const u8 = "LEVEL FAILED!";
             const levelFailedStringWidth = rl.measureText(levelFailedString, LEVEL_COMPLETED_FONT_SIZE);
             rl.drawText(
