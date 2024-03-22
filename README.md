@@ -5,6 +5,20 @@ The goal is to shoot all enemies that come flying to you. Once they manage to co
 they will explode and inflict damage. Try to survive as long as possible!
 Kill enemies will reward you with cash which you can use to become stronger by upgrading your skills.
 
+# Controls
+
+Turn your turret using the ``A`` and ``D`` keys. 
+
+Shoot by pressing ``SPACE``. You may keep it pressed for continuous shooting.
+
+Upgrade your stats by pressing the keys ``1`` to ``5``. The GUI will show you which key corresponds to which stat.
+
+Press ``H`` to enable a scope: a red line will appear that draws the path of your bullet. Use it if you need to practice hitting enemies.
+
+To switch the color mode, press ``J``.
+
+Press ``K`` to toggle auto-fire mode.
+
 ## Demo
 
 <img width="1112" alt="gameplay" src="https://github.com/xLPMG/zig-turret/assets/17238289/c1cb81db-d37a-4e41-9f01-7b77a08d6877">
