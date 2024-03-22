@@ -36,13 +36,21 @@ const maxLevelCooldown = scaleCooldown.len;
 const enemyToughnessScalar: f32 = 1.2;
 const enemyColors = [_]rl.Color{ rl.Color.green, rl.Color.dark_green, rl.Color.red, rl.Color.purple, rl.Color.dark_purple };
 const enemyReward = [_]f32{ 2, 4, 6, 8, 10, 15, 20 };
+const enemyDamage = [_]f32{ 2, 4, 6, 8, 10, 12, 14 };
+// max delay until enemies become visible
 const MAX_ENEMY_DELAY = 30;
+// delay for which enemies will wait when their path is blocked
+const ENEMY_WAIT_DELAY = 2.5;
+
+const ENEMY_HIT_PARTICLE_TTL = 0.4;
+const PLAYER_DEATH_PARTICLE_TTL = 2.5;
 
 const KEY_UPGRADE_HEALTH: u32 = 1;
 const KEY_UPGRADE_DAMAGE: u32 = 2;
 const KEY_UPGRADE_ROT_SPEED: u32 = 3;
 const KEY_UPGRADE_PRO_SPEED: u32 = 4;
 const KEY_UPGRADE_COOLDOWN: u32 = 5;
+
 //////////////////////////////////////////////////////////////
 /// VARIABLES
 //////////////////////////////////////////////////////////////
@@ -56,6 +64,7 @@ var timeSinceLastShot: f32 = 0;
 //////////////////////////////////////////////////////////////
 /// STRUCTS & CONTAINERS
 //////////////////////////////////////////////////////////////
+
 const State = struct {
     time: f32 = 0,
     cash: f32 = 0,
@@ -88,8 +97,11 @@ const Enemy = struct {
     rot: f32,
     size: f32,
     health: f32,
+    damage: f32,
     level: u32,
     delay: f32,
+    col: rl.Color,
+    waitFor: f32 = 0,
 };
 var hiddenEnemies: std.ArrayList(Enemy) = undefined;
 var visibleEnemies: std.ArrayList(Enemy) = undefined;
@@ -100,6 +112,15 @@ const Projectile = struct {
     size: f32 = 5,
 };
 var projectiles: std.ArrayList(Projectile) = undefined;
+
+const Particle = struct {
+    pos: rl.Vector2 = .{ .x = 0, .y = 0 },
+    vel: rl.Vector2 = .{ .x = 0, .y = 0 },
+    size: f32 = 1,
+    ttl: f32 = 2,
+    col: rl.Color,
+};
+var particles: std.ArrayList(Particle) = undefined;
 
 //////////////////////////////////////////////////////////////
 /// FUNCTIONS
@@ -117,6 +138,40 @@ fn getValueForLevel(array: []const f32, level: u32) f32 {
         return array[array.len - 1];
     } else {
         return array[index];
+    }
+}
+
+fn getColorForLevel(array: []const rl.Color, level: u32) rl.Color {
+    var index = level - 1;
+    if (index >= array.len) {
+        return array[array.len - 1];
+    } else {
+        return array[index];
+    }
+}
+
+fn generateExplosion(position: rl.Vector2, amount: usize, ttl: f32, color: rl.Color) !void {
+    var prng = rand.Xoshiro256.init(@as(u64, @intFromFloat(state.time * 10000)));
+    var rng = prng.random();
+
+    for (0..amount) |_| {
+        const angle = math.tau * rng.float(f32);
+        try particles.append(.{
+            .pos = rlm.vector2Add(
+                position,
+                rl.Vector2.init(rng.float(f32) * 3, rng.float(f32) * 3),
+            ),
+            .vel = rlm.vector2Scale(
+                rl.Vector2.init(
+                    math.cos(angle),
+                    math.sin(angle),
+                ),
+                4.0 + 4.0 * rng.float(f32),
+            ),
+            .ttl = ttl + (ttl * rng.float(f32)),
+            .col = color,
+            .size = 0.4 + (0.5 * rng.float(f32)),
+        });
     }
 }
 
@@ -146,8 +201,6 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
         const rotationAngle: f32 = std.math.atan2(f32, delta.y, delta.x);
         const rotationDegrees: f32 = rotationAngle * (180.0 / std.math.pi);
         const moveDir = rl.Vector2.init(math.cos(rotationAngle), math.sin(rotationAngle));
-
-        std.log.info("{} {}", .{ moveDir.x, moveDir.y });
         const velocity: rl.Vector2 = rlm.vector2Scale(moveDir, speed);
 
         try hiddenEnemies.append(.{
@@ -156,8 +209,10 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
             .rot = rotationDegrees,
             .size = 10 / speed,
             .health = 10 * @as(f32, @floatFromInt(level)) * enemyToughnessScalar,
+            .damage = getValueForLevel(&enemyDamage, level),
             .level = level,
             .delay = rng.float(f32) * MAX_ENEMY_DELAY,
+            .col = getColorForLevel(&enemyColors, level),
         });
     }
 }
@@ -209,7 +264,7 @@ fn update() !void {
             timeSinceLastShot = 0.0;
         }
     }
-
+    //UPGRADES
     if (rl.isKeyPressed(.key_one) and state.levelHealth != maxLevelHealth) {
         // upgrade health
         const cashNeededForUpgrade = getValueForLevel(&scaleCash, state.levelHealth);
@@ -268,33 +323,66 @@ fn update() !void {
     i = 0;
     while (i < visibleEnemies.items.len) {
         var e = &visibleEnemies.items[i];
+        // check if enemy is currently waiting
+        if (e.waitFor > 0) {
+            e.waitFor -= dt;
+            if (e.waitFor < 0) {
+                e.waitFor = 0;
+            }
+            i += 1;
+            continue;
+        }
+        // calculate movement
         var potentialPos: rl.Vector2 = rlm.vector2Add(e.pos, rlm.vector2Scale(e.vel, dt * 10));
         var doesCollide: bool = false;
         for (visibleEnemies.items) |*ve| {
             if (ve.pos.x != e.pos.x and ve.pos.y != e.pos.y) {
-                if (rlm.vector2Distance(potentialPos, ve.pos) < (ve.size + e.size + 5)) {
+                if (rlm.vector2Distance(potentialPos, ve.pos) < (ve.size + e.size + 1)) {
                     doesCollide = true;
+                    e.waitFor = ENEMY_WAIT_DELAY;
+                    break;
                 }
             }
         }
-
-        if (!doesCollide) {
-            //move
-            e.pos = potentialPos;
+        if (doesCollide) {
+            i += 1;
+            continue;
         }
+
+        //move
+        e.pos = potentialPos;
+
         //enemy hit player
-        const offset: f32 = 5;
+        const offset: f32 = 15;
         if (rlm.vector2Distance(e.pos, player.pos) < player.turretSize + offset) {
+            player.health -= e.damage;
+            try generateExplosion(
+                e.pos,
+                25,
+                ENEMY_HIT_PARTICLE_TTL,
+                e.col,
+            );
             _ = visibleEnemies.swapRemove(i);
-            //player.health = player.health - e.health;
         } else {
             // enemy hit by projectile
             var ip: usize = 0;
             while (ip < projectiles.items.len) {
                 var p = &projectiles.items[ip];
                 if (rlm.vector2Distance(e.pos, p.pos) < e.size + p.size) {
-                    state.cash += getValueForLevel(&enemyReward, e.level);
-                    _ = visibleEnemies.swapRemove(i);
+                    try generateExplosion(
+                        e.pos,
+                        @as(usize, @intCast((10 + @as(i32, @intFromFloat(e.size))))),
+                        ENEMY_HIT_PARTICLE_TTL,
+                        e.col,
+                    );
+
+                    e.health -= player.damage;
+
+                    if (e.health <= 0) {
+                        state.cash += getValueForLevel(&enemyReward, e.level);
+                        _ = visibleEnemies.swapRemove(i);
+                    }
+
                     _ = projectiles.swapRemove(ip);
                 }
                 ip += 1;
@@ -314,6 +402,24 @@ fn update() !void {
             _ = projectiles.swapRemove(i);
         }
         i += 1;
+    }
+
+    // PARTICLES
+    i = 0;
+    while (i < particles.items.len) {
+        var p = &particles.items[i];
+        p.pos = rlm.vector2Add(p.pos, rlm.vector2Scale(p.vel, dt * 10));
+        p.ttl -= dt;
+        if (p.ttl <= 0) {
+            _ = particles.swapRemove(i);
+        }
+
+        i += 1;
+    }
+
+    // DIE
+    if (player.health <= 0) {
+        try die();
     }
 }
 
@@ -360,13 +466,19 @@ fn drawStat(
 }
 
 fn render() !void {
+    // PARTICLES
+    for (particles.items) |*p| {
+        rl.drawCircleV(p.pos, p.size, p.col);
+    }
+
     // PROJECTILES
     for (projectiles.items) |*p| {
         rl.drawCircleV(p.pos, p.size, fgColor);
     }
+
     // ENEMIES
     for (visibleEnemies.items) |*e| {
-        rl.drawCircleV(e.pos, e.size, enemyColors[0]);
+        rl.drawCircleV(e.pos, e.size, e.col);
     }
 
     try drawPlayer();
@@ -387,18 +499,26 @@ fn render() !void {
     try drawStat(2, "Rotational speed", player.rotationalSpeed, state.levelRotationalSpeed, maxLevelRotationalSpeed, &scaleRotationalSpeed, KEY_UPGRADE_ROT_SPEED);
     try drawStat(3, "Projectile speed", player.projectileSpeed, state.levelProjectileSpeed, maxLevelProjectileSpeed, &scaleProjectileSpeed, KEY_UPGRADE_PRO_SPEED);
     try drawStat(4, "Gun cooldown", player.cooldown, state.levelCooldown, maxLevelCooldown, &scaleCooldown, KEY_UPGRADE_COOLDOWN);
+
+    // FPS
+    rl.drawFPS(5, SCREEN_HEIGHT - 25);
 }
 
-//////////////////////////////////////////////////////////////
-/// MAIN
-//////////////////////////////////////////////////////////////
-pub fn main() anyerror!void {
-    // INITIALIZATIONS
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer std.debug.assert(gpa.deinit() == .ok);
+fn initState() !void {
+    state = .{
+        .time = 0,
+        .cash = 0,
+        .wave = 1,
+        .waveTime = 0,
+        .levelHealth = 1,
+        .levelDamage = 1,
+        .levelRotationalSpeed = 1,
+        .levelProjectileSpeed = 1,
+        .levelCooldown = 1,
+    };
+}
 
-    state = .{};
+fn initPlayer() !void {
     player = .{
         .pos = .{ .x = SCREEN_WIDTH / 2, .y = SCREEN_HEIGHT / 2 },
         .health = getValueForLevel(&scaleHealth, 1),
@@ -410,12 +530,38 @@ pub fn main() anyerror!void {
         .projectileSpeed = getValueForLevel(&scaleProjectileSpeed, 1),
         .cooldown = getValueForLevel(&scaleCooldown, 1),
     };
+}
+
+fn die() !void {
+    try generateExplosion(
+        player.pos,
+        1000,
+        PLAYER_DEATH_PARTICLE_TTL,
+        fgColor,
+    );
+    try initState();
+    try initPlayer();
+}
+
+//////////////////////////////////////////////////////////////
+/// MAIN
+//////////////////////////////////////////////////////////////
+pub fn main() anyerror!void {
+    // INITIALIZATIONS
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer std.debug.assert(gpa.deinit() == .ok);
+
+    try initState();
+    try initPlayer();
 
     projectiles = std.ArrayList(Projectile).init(allocator);
+    particles = std.ArrayList(Particle).init(allocator);
     hiddenEnemies = std.ArrayList(Enemy).init(allocator);
     visibleEnemies = std.ArrayList(Enemy).init(allocator);
 
     defer projectiles.deinit();
+    defer particles.deinit();
     defer hiddenEnemies.deinit();
     defer visibleEnemies.deinit();
 
