@@ -20,11 +20,11 @@ const statsNumsX: u32 = 142;
 const statsUpgradeValX: u32 = 195;
 const statsUpgradeInsX: u32 = 255;
 
-const scaleHealth = [_]f32{ 10, 12 };
+const scaleHealth = [_]f32{ 10, 12.5, 15, 17.5, 20, 25, 30 };
 const scaleDamage = [_]f32{ 1, 2, 5, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50 };
 const scaleRotationalSpeed = [_]f32{ 10, 1.1, 1.2, 1.5, 1.7, 2, 2.2, 2.4, 2.6, 2.8, 3 };
 const scaleProjectileSpeed = [_]f32{ 4, 5, 6, 7, 8, 9, 10 };
-const scaleCooldown = [_]f32{ 0.1, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1 };
+const scaleCooldown = [_]f32{ 1.6, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15 };
 const scaleCash = [_]f32{ 5, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50 };
 
 const maxLevelHealth = scaleHealth.len;
@@ -43,6 +43,7 @@ const MAX_ENEMY_DELAY = 30;
 const ENEMY_WAIT_DELAY = 2.5;
 
 const ENEMY_HIT_PARTICLE_TTL = 0.4;
+const ENEMY_DEATH_PARTICLE_TTL = 0.2;
 const PLAYER_DEATH_PARTICLE_TTL = 2.5;
 
 const KEY_UPGRADE_HEALTH: u32 = 1;
@@ -121,6 +122,15 @@ const Particle = struct {
     col: rl.Color,
 };
 var particles: std.ArrayList(Particle) = undefined;
+
+const Sound = struct {
+    laser1: rl.Sound,
+    explosion1: rl.Sound,
+    explosion2: rl.Sound,
+    hit: rl.Sound,
+    death: rl.Sound,
+};
+var sound: Sound = undefined;
 
 //////////////////////////////////////////////////////////////
 /// FUNCTIONS
@@ -262,6 +272,7 @@ fn update() !void {
                 .vel = rlm.vector2Scale(gunDir, player.projectileSpeed),
             });
             timeSinceLastShot = 0.0;
+            rl.playSound(sound.laser1);
         }
     }
     //UPGRADES
@@ -339,11 +350,17 @@ fn update() !void {
             if (ve.pos.x != e.pos.x and ve.pos.y != e.pos.y) {
                 if (rlm.vector2Distance(potentialPos, ve.pos) < (ve.size + e.size + 1)) {
                     doesCollide = true;
-                    e.waitFor = ENEMY_WAIT_DELAY;
+                    // addition: wait for each blocking enemy
+                    e.waitFor += ENEMY_WAIT_DELAY;
                     break;
                 }
             }
         }
+        // prevent deadlocks -> force movement if waited too long
+        if (e.waitFor >= ENEMY_WAIT_DELAY * 3) {
+            doesCollide = false;
+        }
+
         if (doesCollide) {
             i += 1;
             continue;
@@ -355,13 +372,14 @@ fn update() !void {
         //enemy hit player
         const offset: f32 = 15;
         if (rlm.vector2Distance(e.pos, player.pos) < player.turretSize + offset) {
-            player.health -= e.damage;
             try generateExplosion(
                 e.pos,
                 25,
                 ENEMY_HIT_PARTICLE_TTL,
                 e.col,
             );
+            rl.playSound(sound.explosion2);
+            player.health -= e.damage;
             _ = visibleEnemies.swapRemove(i);
         } else {
             // enemy hit by projectile
@@ -369,18 +387,26 @@ fn update() !void {
             while (ip < projectiles.items.len) {
                 var p = &projectiles.items[ip];
                 if (rlm.vector2Distance(e.pos, p.pos) < e.size + p.size) {
-                    try generateExplosion(
-                        e.pos,
-                        @as(usize, @intCast((10 + @as(i32, @intFromFloat(e.size))))),
-                        ENEMY_HIT_PARTICLE_TTL,
-                        e.col,
-                    );
-
                     e.health -= player.damage;
 
                     if (e.health <= 0) {
+                        try generateExplosion(
+                            e.pos,
+                            @as(usize, @intCast((200 + @as(i32, @intFromFloat(e.size))))),
+                            ENEMY_DEATH_PARTICLE_TTL,
+                            e.col,
+                        );
+                        rl.playSound(sound.explosion1);
                         state.cash += getValueForLevel(&enemyReward, e.level);
                         _ = visibleEnemies.swapRemove(i);
+                    } else {
+                        try generateExplosion(
+                            e.pos,
+                            @as(usize, @intCast((10 + @as(i32, @intFromFloat(e.size))))),
+                            ENEMY_HIT_PARTICLE_TTL,
+                            e.col,
+                        );
+                        rl.playSound(sound.hit);
                     }
 
                     _ = projectiles.swapRemove(ip);
@@ -501,7 +527,7 @@ fn render() !void {
     try drawStat(4, "Gun cooldown", player.cooldown, state.levelCooldown, maxLevelCooldown, &scaleCooldown, KEY_UPGRADE_COOLDOWN);
 
     // FPS
-    rl.drawFPS(5, SCREEN_HEIGHT - 25);
+    //rl.drawFPS(5, SCREEN_HEIGHT - 25);
 }
 
 fn initState() !void {
@@ -533,12 +559,18 @@ fn initPlayer() !void {
 }
 
 fn die() !void {
+    rl.playSound(sound.death);
     try generateExplosion(
         player.pos,
         1000,
         PLAYER_DEATH_PARTICLE_TTL,
         fgColor,
     );
+
+    try projectiles.resize(0);
+    try hiddenEnemies.resize(0);
+    try visibleEnemies.resize(0);
+
     try initState();
     try initPlayer();
 }
@@ -552,24 +584,35 @@ pub fn main() anyerror!void {
     const allocator = gpa.allocator();
     defer std.debug.assert(gpa.deinit() == .ok);
 
+    rl.initWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "turret defense!");
+    rl.setTargetFPS(60);
+
+    rl.initAudioDevice();
+
     try initState();
     try initPlayer();
 
+    // INIT CONTAINERS
     projectiles = std.ArrayList(Projectile).init(allocator);
     particles = std.ArrayList(Particle).init(allocator);
     hiddenEnemies = std.ArrayList(Enemy).init(allocator);
     visibleEnemies = std.ArrayList(Enemy).init(allocator);
-
     defer projectiles.deinit();
     defer particles.deinit();
     defer hiddenEnemies.deinit();
     defer visibleEnemies.deinit();
 
-    // WINDOW & GAME LOOP
-    try generateEnemies(50, state.wave, 21413134);
+    // INIT SOUNDS
+    sound = .{
+        .laser1 = rl.loadSound("res/laser1.mp3"),
+        .explosion1 = rl.loadSound("res/explosion1.mp3"),
+        .explosion2 = rl.loadSound("res/explosion2.mp3"),
+        .hit = rl.loadSound("res/hit.mp3"),
+        .death = rl.loadSound("res/death.mp3"),
+    };
 
-    rl.initWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "turret defense!");
-    defer rl.closeWindow();
+    // GAME LOOP
+    try generateEnemies(50, state.wave, 21413134);
 
     while (!rl.windowShouldClose()) {
         try update();
@@ -581,4 +624,7 @@ pub fn main() anyerror!void {
 
         try render();
     }
+
+    rl.closeAudioDevice();
+    rl.closeWindow();
 }
