@@ -512,7 +512,7 @@ fn update() !void {
                         enemyDied = true;
                     } else {
                         try generateExplosion(
-                            e.pos,
+                            p.pos,
                             @as(usize, @intCast((10 + @as(i32, @intFromFloat(e.size))))),
                             ENEMY_HIT_PARTICLE_TTL,
                             e.col,
