@@ -358,35 +358,37 @@ fn update() !void {
     const gunDir = rl.Vector2.init(math.cos(dirRadians), math.sin(dirRadians));
 
     // INPUTS
-    if (rl.isKeyPressed(.key_h)) {
-        scope = !scope;
-    }
+    if (!levelFailed) {
+        if (rl.isKeyPressed(.key_h)) {
+            scope = !scope;
+        }
 
-    if (rl.isKeyPressed(.key_j)) {
-        try switchColor();
-    }
+        if (rl.isKeyPressed(.key_j)) {
+            try switchColor();
+        }
 
-    if (rl.isKeyPressed(.key_k)) {
-        autoShoot = !autoShoot;
-    }
+        if (rl.isKeyPressed(.key_k)) {
+            autoShoot = !autoShoot;
+        }
 
-    if (rl.isKeyDown(.key_a)) {
-        player.rot -= player.rotationalSpeed * math.tau * dt;
-    }
+        if (rl.isKeyDown(.key_a)) {
+            player.rot -= player.rotationalSpeed * math.tau * dt;
+        }
 
-    if (rl.isKeyDown(.key_d)) {
-        player.rot += player.rotationalSpeed * math.tau * dt;
-    }
+        if (rl.isKeyDown(.key_d)) {
+            player.rot += player.rotationalSpeed * math.tau * dt;
+        }
 
-    if (rl.isKeyDown(.key_space) or autoShoot) {
-        if (timeSinceLastShot > player.cooldown) {
-            try projectiles.append(.{
-                .pos = rlm.vector2Add(player.pos, rlm.vector2Scale(gunDir, player.gunSize.y + 4)),
-                .vel = rlm.vector2Scale(gunDir, player.projectileSpeed),
-                .size = player.projectileSize,
-            });
-            timeSinceLastShot = 0.0;
-            rl.playSound(sound.laser1);
+        if (rl.isKeyDown(.key_space) or autoShoot) {
+            if (timeSinceLastShot > player.cooldown) {
+                try projectiles.append(.{
+                    .pos = rlm.vector2Add(player.pos, rlm.vector2Scale(gunDir, player.gunSize.y + 4)),
+                    .vel = rlm.vector2Scale(gunDir, player.projectileSpeed),
+                    .size = player.projectileSize,
+                });
+                timeSinceLastShot = 0.0;
+                rl.playSound(sound.laser1);
+            }
         }
     }
     //UPGRADES
