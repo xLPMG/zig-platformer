@@ -29,6 +29,10 @@ const scaleProjectileSize = [_]f32{ 5, 6, 7, 8, 9, 10, 11, 12 };
 const scaleCooldown = [_]f32{ 1.6, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15 };
 const scaleCash = [_]f32{ 5, 5, 10, 12.5, 15, 17.5, 20, 25, 30, 35, 40, 45, 50 };
 
+// rotational acceleration
+const baseRotationalSpeed = 4;
+const rotationalSpeedup = 6;
+
 const maxLevelHealth = scaleHealth.len;
 const maxLevelDamage = scaleDamage.len;
 const maxLevelRotationalSpeed = scaleRotationalSpeed.len;
@@ -89,6 +93,10 @@ var levelDoneTimer: f32 = 0;
 
 var scope: bool = false;
 var autoShoot: bool = false;
+
+var currentRotationalSpeed: f32 = baseRotationalSpeed;
+var lastRotationalInputLeft: f32 = 0.0;
+var lastRotationalInputRight: f32 = 0.0;
 
 //////////////////////////////////////////////////////////////
 /// STRUCTS & CONTAINERS
@@ -372,11 +380,25 @@ fn update() !void {
         }
 
         if (rl.isKeyDown(.key_a)) {
-            player.rot -= player.rotationalSpeed * math.tau * dt;
+            if (state.time - lastRotationalInputLeft > 0.1) {
+                currentRotationalSpeed = baseRotationalSpeed;
+            } else if (currentRotationalSpeed < player.rotationalSpeed) {
+                currentRotationalSpeed += rotationalSpeedup * dt;
+            }
+
+            player.rot -= currentRotationalSpeed * math.tau * dt;
+            lastRotationalInputLeft = state.time;
         }
 
         if (rl.isKeyDown(.key_d)) {
-            player.rot += player.rotationalSpeed * math.tau * dt;
+            if (state.time - lastRotationalInputRight > 0.1) {
+                currentRotationalSpeed = baseRotationalSpeed;
+            } else if (currentRotationalSpeed < player.rotationalSpeed) {
+                currentRotationalSpeed += rotationalSpeedup * dt;
+            }
+
+            player.rot += currentRotationalSpeed * math.tau * dt;
+            lastRotationalInputRight = state.time;
         }
 
         if (rl.isKeyDown(.key_space) or autoShoot) {
@@ -703,6 +725,14 @@ fn render() !void {
 
     // FPS
     //rl.drawFPS(5, SCREEN_HEIGHT - 25);
+
+    rl.drawText(
+        rl.textFormat("%.2f", .{currentRotationalSpeed}),
+        800,
+        10,
+        STATS_FONT_SIZE,
+        rl.Color.white,
+    );
 }
 
 fn initState() !void {
