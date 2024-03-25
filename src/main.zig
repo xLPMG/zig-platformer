@@ -25,6 +25,7 @@ const scaleHealth = [_]f32{ 5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30 };
 const scaleDamage = [_]f32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 const scaleRotationalSpeed = [_]f32{ 10, 12, 14, 16, 18, 20 };
 const scaleProjectileSpeed = [_]f32{ 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+const scaleProjectileSize = [_]f32{ 5, 6, 7, 8, 9, 10, 11, 12 };
 const scaleCooldown = [_]f32{ 1.6, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15 };
 const scaleCash = [_]f32{ 5, 5, 10, 12.5, 15, 17.5, 20, 25, 30, 35, 40, 45, 50 };
 
@@ -32,6 +33,7 @@ const maxLevelHealth = scaleHealth.len;
 const maxLevelDamage = scaleDamage.len;
 const maxLevelRotationalSpeed = scaleRotationalSpeed.len;
 const maxLevelProjectileSpeed = scaleProjectileSpeed.len;
+const maxLevelProjectileSize = scaleProjectileSize.len;
 const maxLevelCooldown = scaleCooldown.len;
 
 const enemyColors = [_]rl.Color{
@@ -66,7 +68,8 @@ const KEY_UPGRADE_HEALTH: u32 = 1;
 const KEY_UPGRADE_DAMAGE: u32 = 2;
 const KEY_UPGRADE_ROT_SPEED: u32 = 3;
 const KEY_UPGRADE_PRO_SPEED: u32 = 4;
-const KEY_UPGRADE_COOLDOWN: u32 = 5;
+const KEY_UPGRADE_PRO_SIZE: u32 = 5;
+const KEY_UPGRADE_COOLDOWN: u32 = 6;
 
 const LEVEL_DONE_DELAY: f32 = 5;
 
@@ -100,6 +103,7 @@ const State = struct {
     levelDamage: u32 = 1,
     levelRotationalSpeed: u32 = 1,
     levelProjectileSpeed: u32 = 1,
+    levelProjectileSize: u32 = 1,
     levelCooldown: u32 = 1,
 };
 var state: State = undefined;
@@ -113,6 +117,7 @@ const Player = struct {
     rotationalSpeed: f32,
     damage: f32,
     projectileSpeed: f32,
+    projectileSize: f32,
     cooldown: f32,
 };
 var player: Player = undefined;
@@ -378,6 +383,7 @@ fn update() !void {
             try projectiles.append(.{
                 .pos = rlm.vector2Add(player.pos, rlm.vector2Scale(gunDir, player.gunSize.y + 4)),
                 .vel = rlm.vector2Scale(gunDir, player.projectileSpeed),
+                .size = player.projectileSize,
             });
             timeSinceLastShot = 0.0;
             rl.playSound(sound.laser1);
@@ -416,7 +422,15 @@ fn update() !void {
             state.levelProjectileSpeed += 1;
             player.projectileSpeed = getValueForLevel(&scaleProjectileSpeed, state.levelProjectileSpeed);
         }
-    } else if (rl.isKeyPressed(.key_five) and state.levelCooldown != maxLevelCooldown) {
+    } else if (rl.isKeyPressed(.key_five) and state.levelProjectileSize != maxLevelProjectileSize) {
+        // upgrade projectile size
+        const cashNeededForUpgrade = getValueForLevel(&scaleCash, state.levelProjectileSize);
+        if (state.cash >= cashNeededForUpgrade) {
+            state.cash -= cashNeededForUpgrade;
+            state.levelProjectileSize += 1;
+            player.projectileSize = getValueForLevel(&scaleProjectileSize, state.levelProjectileSize);
+        }
+    } else if (rl.isKeyPressed(.key_six) and state.levelCooldown != maxLevelCooldown) {
         // upgrade cooldown
         const cashNeededForUpgrade = getValueForLevel(&scaleCash, state.levelCooldown);
         if (state.cash >= cashNeededForUpgrade) {
@@ -657,7 +671,8 @@ fn render() !void {
     try drawStat(1, "Damage", player.damage, state.levelDamage, maxLevelDamage, &scaleDamage, KEY_UPGRADE_DAMAGE);
     try drawStat(2, "Rotational speed", player.rotationalSpeed, state.levelRotationalSpeed, maxLevelRotationalSpeed, &scaleRotationalSpeed, KEY_UPGRADE_ROT_SPEED);
     try drawStat(3, "Projectile speed", player.projectileSpeed, state.levelProjectileSpeed, maxLevelProjectileSpeed, &scaleProjectileSpeed, KEY_UPGRADE_PRO_SPEED);
-    try drawStat(4, "Gun cooldown", player.cooldown, state.levelCooldown, maxLevelCooldown, &scaleCooldown, KEY_UPGRADE_COOLDOWN);
+    try drawStat(4, "Projectile size", player.projectileSize, state.levelProjectileSize, maxLevelProjectileSize, &scaleProjectileSize, KEY_UPGRADE_PRO_SIZE);
+    try drawStat(5, "Gun cooldown", player.cooldown, state.levelCooldown, maxLevelCooldown, &scaleCooldown, KEY_UPGRADE_COOLDOWN);
 
     // LEVEL DONE
     if (levelDoneTimer > 0) {
@@ -698,6 +713,7 @@ fn initState() !void {
         .levelDamage = 1,
         .levelRotationalSpeed = 1,
         .levelProjectileSpeed = 1,
+        .levelProjectileSize = 1,
         .levelCooldown = 1,
     };
 }
@@ -712,6 +728,7 @@ fn initPlayer() !void {
         .rotationalSpeed = getValueForLevel(&scaleRotationalSpeed, 1),
         .damage = getValueForLevel(&scaleDamage, 1),
         .projectileSpeed = getValueForLevel(&scaleProjectileSpeed, 1),
+        .projectileSize = getValueForLevel(&scaleProjectileSize, 1),
         .cooldown = getValueForLevel(&scaleCooldown, 1),
     };
 }
