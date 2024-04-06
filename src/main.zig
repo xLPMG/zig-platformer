@@ -23,15 +23,14 @@ const statsUpgradeInsX: u32 = 255;
 
 const scaleHealth = [_]f32{ 5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30 };
 const scaleDamage = [_]f32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
-const scaleRotationalSpeed = [_]f32{ 10, 12, 14, 16, 18, 20 };
+const scaleRotationalSpeed = [_]f32{ 10, 12, 14, 18, 22, 26, 30 };
 const scaleProjectileSpeed = [_]f32{ 4, 5, 6, 7, 8, 9, 10, 11, 12 };
 const scaleProjectileSize = [_]f32{ 5, 6, 7, 8, 9, 10, 11, 12 };
 const scaleCooldown = [_]f32{ 1.6, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15 };
 const scaleCash = [_]f32{ 5, 5, 10, 12.5, 15, 17.5, 20, 25, 30, 35, 40, 45, 50 };
 
 // rotational acceleration
-const baseRotationalSpeed = 4;
-const rotationalSpeedup = 6;
+const baseRotationalSpeed = 3;
 
 const maxLevelHealth = scaleHealth.len;
 const maxLevelDamage = scaleDamage.len;
@@ -383,7 +382,7 @@ fn update() !void {
             if (state.time - lastRotationalInputLeft > 0.1) {
                 currentRotationalSpeed = baseRotationalSpeed;
             } else if (currentRotationalSpeed < player.rotationalSpeed) {
-                currentRotationalSpeed += rotationalSpeedup * dt;
+                currentRotationalSpeed += player.rotationalSpeed * dt;
             }
 
             player.rot -= currentRotationalSpeed * math.tau * dt;
@@ -394,7 +393,7 @@ fn update() !void {
             if (state.time - lastRotationalInputRight > 0.1) {
                 currentRotationalSpeed = baseRotationalSpeed;
             } else if (currentRotationalSpeed < player.rotationalSpeed) {
-                currentRotationalSpeed += rotationalSpeedup * dt;
+                currentRotationalSpeed += player.rotationalSpeed * dt;
             }
 
             player.rot += currentRotationalSpeed * math.tau * dt;
