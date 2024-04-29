@@ -119,7 +119,6 @@ const Player = struct {
     pos: rl.Vector2,
     health: f32,
     turretSize: f32,
-    gunSize: rl.Vector2,
     rot: f32,
     rotationalSpeed: f32,
     damage: f32,
@@ -262,7 +261,7 @@ fn generateEnemies(amount: u32, wave: u32, seed: u64) !void {
             .health = @as(f32, @floatFromInt(level)),
             .damage = getValueForLevel(&enemyDamage, level),
             .level = level,
-            .delay = 2 + rng.float(f32) * MAX_ENEMY_DELAY * @as(f32, @floatFromInt(amount)),
+            .delay = 2 + rng.float(f32) * MAX_ENEMY_DELAY * @sqrt(@as(f32, @floatFromInt(amount))),
             .col = getColorForLevel(&enemyColors, level),
         });
     }
@@ -276,10 +275,10 @@ fn drawPlayer() !void {
     var rec: rl.Rectangle = .{
         .x = player.pos.x,
         .y = player.pos.y,
-        .width = player.gunSize.x,
-        .height = player.gunSize.y,
+        .width = player.turretSize * 1.2,
+        .height = player.turretSize * 2.2,
     };
-    rl.drawRectanglePro(rec, .{ .x = player.gunSize.x / 2, .y = 0 }, player.rot, fgColor);
+    rl.drawRectanglePro(rec, .{ .x = player.turretSize * 1.2 / 2, .y = 0 }, player.rot, fgColor);
 }
 
 fn initLevelLogic() !void {
@@ -378,7 +377,7 @@ fn update() !void {
             autoShoot = !autoShoot;
         }
 
-        if (rl.isKeyDown(.key_a)) {
+        if (rl.isKeyDown(.key_a) or rl.isKeyDown(.key_left)) {
             if (state.time - lastRotationalInputLeft > 0.1) {
                 currentRotationalSpeed = baseRotationalSpeed;
             } else if (currentRotationalSpeed < player.rotationalSpeed) {
@@ -389,7 +388,7 @@ fn update() !void {
             lastRotationalInputLeft = state.time;
         }
 
-        if (rl.isKeyDown(.key_d)) {
+        if (rl.isKeyDown(.key_d) or rl.isKeyDown(.key_right)) {
             if (state.time - lastRotationalInputRight > 0.1) {
                 currentRotationalSpeed = baseRotationalSpeed;
             } else if (currentRotationalSpeed < player.rotationalSpeed) {
@@ -403,7 +402,7 @@ fn update() !void {
         if (rl.isKeyDown(.key_space) or autoShoot) {
             if (timeSinceLastShot > player.cooldown) {
                 try projectiles.append(.{
-                    .pos = rlm.vector2Add(player.pos, rlm.vector2Scale(gunDir, player.gunSize.y + 4)),
+                    .pos = rlm.vector2Add(player.pos, rlm.vector2Scale(gunDir, player.turretSize * 2.2 + 4)),
                     .vel = rlm.vector2Scale(gunDir, player.projectileSpeed),
                     .size = player.projectileSize,
                 });
@@ -452,6 +451,7 @@ fn update() !void {
             state.cash -= cashNeededForUpgrade;
             state.levelProjectileSize += 1;
             player.projectileSize = getValueForLevel(&scaleProjectileSize, state.levelProjectileSize);
+            player.turretSize = player.projectileSize + 5;
         }
     } else if (rl.isKeyPressed(.key_six) and state.levelCooldown != maxLevelCooldown) {
         // upgrade cooldown
@@ -753,9 +753,8 @@ fn initPlayer() !void {
     player = .{
         .pos = .{ .x = SCREEN_WIDTH / 2, .y = SCREEN_HEIGHT / 2 },
         .health = getValueForLevel(&scaleHealth, 1),
-        .turretSize = 10,
-        .gunSize = .{ .x = 10, .y = 20 },
-        .rot = 0.0,
+        .turretSize = 5 + getValueForLevel(&scaleProjectileSize, 1),
+        .rot = 180.0,
         .rotationalSpeed = getValueForLevel(&scaleRotationalSpeed, 1),
         .damage = getValueForLevel(&scaleDamage, 1),
         .projectileSpeed = getValueForLevel(&scaleProjectileSpeed, 1),
